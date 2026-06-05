@@ -10,6 +10,7 @@ import numpy as np
 from chunk import Chunk, chunk_corpus
 from embed import embed_texts
 from utils import ARTIFACTS_DIR, ensure_artifacts_dir, iter_entries
+from bm25 import build_bm25
 
 INDEX_VECTORS_NAME = "index_vectors.npy"
 INDEX_META_NAME = "index_meta.json"
@@ -20,16 +21,12 @@ def build_index(
     entries_dir: Optional[Path] = None,
     artifacts_dir: Optional[Path] = None,
 ) -> Tuple[np.ndarray, List[int]]:
-    """
-    Embed the full corpus and persist artifacts.
-
-    Returns (vectors, page_ids) where row i corresponds to page_ids[i].
-    For multi-chunk pipelines, store chunk metadata in index_meta.json and
-    aggregate to page_id in retrieve.py.
-    """
+    
     out_dir = artifacts_dir or ensure_artifacts_dir()
     records = list(iter_entries(entries_dir))
-    chunks: List[Chunk] = chunk_corpus(records)
+    
+    # 1. Build Dense Index (using your Single-Chunk / Intro-Extractor)
+    chunks = chunk_corpus(records)
     texts = [c.text for c in chunks]
     vectors = embed_texts(texts)
     page_ids = [c.page_id for c in chunks]
@@ -37,13 +34,14 @@ def build_index(
     np.save(out_dir / INDEX_VECTORS_NAME, vectors)
     meta = {
         "page_ids": page_ids,
-        "chunk_ids": [c.chunk_id for c in chunks],
         "model": "sentence-transformers/all-MiniLM-L6-v2",
         "num_vectors": len(page_ids),
     }
-    (out_dir / INDEX_META_NAME).write_text(
-        json.dumps(meta, indent=2), encoding="utf-8"
-    )
+    (out_dir / INDEX_META_NAME).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    
+    # 2. Build Sparse BM25 Index
+    build_bm25(records, out_dir)
+    
     return vectors, page_ids
 
 
@@ -54,5 +52,8 @@ def load_index(
     root = artifacts_dir or ARTIFACTS_DIR
     vectors = np.load(root / INDEX_VECTORS_NAME)
     meta = json.loads((root / INDEX_META_NAME).read_text(encoding="utf-8"))
+    
+    # Extract only page_ids. chunk_ids has been completely removed!
     page_ids = [int(x) for x in meta["page_ids"]]
+    
     return vectors, page_ids

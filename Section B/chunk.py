@@ -1,4 +1,5 @@
-"""Optional preprocessing and chunking."""
+"""Preprocessing: Explicit Intro-Extraction."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,14 +17,21 @@ class Chunk:
 
 def chunk_entry(record: Dict[str, Any]) -> List[Chunk]:
     """
-    Split one corpus entry into retrieval units.
-
-    Default: single chunk per page (no chunking). Override for fixed-size or
-    semantic chunking strategies.
+    Extract only the title and the lead paragraph (first 150 words).
+    This maximizes signal-to-noise and perfectly fits the token limit.
     """
     page_id = int(record["page_id"])
-    text = entry_text(record)
-    return [Chunk(page_id=page_id, chunk_id=0, text=text)]
+    title = record.get("title", "").strip()
+    content = record.get("content", "").strip()
+
+    # Grab the first 150 words of the content
+    words = content.split()
+    lead_paragraph = " ".join(words[:150])
+
+    # Prepend the title for maximum semantic context
+    chunk_text = f"{title} : {lead_paragraph}" if title else lead_paragraph
+
+    return [Chunk(page_id=page_id, chunk_id=0, text=chunk_text)]
 
 
 def chunk_corpus(records: List[Dict[str, Any]]) -> List[Chunk]:
