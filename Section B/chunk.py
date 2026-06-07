@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 from utils import entry_text
 
 CHUNK_SIZE = 180
-STRIDE = 180
+STRIDE = 120
 
 @dataclass
 class Chunk:
@@ -23,30 +23,51 @@ def chunk_entry(record):
     title = record.get("title", "").strip()
     content = record.get("content", "").strip()
 
-    words = content.split()
+    # split into paragraphs (robust fallback)
+    paragraphs = [
+        p.strip()
+        for p in content.split("\n")
+        if p.strip()
+    ]
 
     chunks = []
+    chunk_id = 0
 
-    for chunk_id, start in enumerate(
-        range(0, len(words), STRIDE)
-    ):
-        chunk_words = words[start:start + CHUNK_SIZE]
+    for p in paragraphs:
 
-        if len(chunk_words) < 40:
+        words = p.split()
+
+        # skip ultra-small noise paragraphs
+        if len(words) < 15:
             continue
 
-        text = (
-            f"{title}\n\n"
-            + " ".join(chunk_words)
-        )
+        # if paragraph is too large, split it
+        if len(words) > 220:
+            for start in range(0, len(words), 150):
+                sub = words[start:start + 150]
 
-        chunks.append(
-            Chunk(
-                page_id=page_id,
-                chunk_id=chunk_id,
-                text=text,
+                text = f"{title}. {title}. " + " ".join(sub)
+
+                chunks.append(
+                    Chunk(
+                        page_id=page_id,
+                        chunk_id=chunk_id,
+                        text=text,
+                    )
+                )
+                chunk_id += 1
+
+        else:
+            text = f"{title}. {title}. " + " ".join(words)
+
+            chunks.append(
+                Chunk(
+                    page_id=page_id,
+                    chunk_id=chunk_id,
+                    text=text,
+                )
             )
-        )
+            chunk_id += 1
 
     return chunks
 

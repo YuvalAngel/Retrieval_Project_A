@@ -93,13 +93,15 @@ def search_batch(
 
             if dense_vals:
                 dense_vals.sort(reverse=True)
-                dense_score = sum(dense_vals[:CHUNK_AGG_TOP])
+                # dense_score = sum(dense_vals[:CHUNK_AGG_TOP])
+                dense_score = max(dense_vals[:CHUNK_AGG_TOP])
             else:
                 dense_score = 0.0
 
             if bm25_vals:
                 bm25_vals.sort(reverse=True)
-                bm25_score = sum(bm25_vals[:CHUNK_AGG_TOP])
+                # bm25_score = sum(bm25_vals[:CHUNK_AGG_TOP])
+                bm25_score = max(bm25_vals[:CHUNK_AGG_TOP])
             else:
                 bm25_score = 0.0
 
