@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import gzip
 import math
 import string
 from collections import Counter, defaultdict
@@ -11,7 +12,8 @@ from typing import Any, Dict, List
 
 from utils import ensure_artifacts_dir
 
-BM25_INDEX_NAME = "bm25_index.json"
+BM25_INDEX_NAME = "bm25_index.json.gz"
+LEGACY_BM25_INDEX_NAME = "bm25_index.json"
 
 # English stop words filter
 STOP_WORDS = {
@@ -84,14 +86,19 @@ def build_bm25(
     }
 
     out_path = out_dir / BM25_INDEX_NAME
-    out_path.write_text(json.dumps(artifact), encoding="utf-8")
+    with gzip.open(out_path, "wt", encoding="utf-8") as handle:
+        json.dump(artifact, handle, separators=(",", ":"))
 
 
 def load_bm25(artifacts_dir: Path | None = None) -> Dict[str, Any]:
     """Loads the precomputed BM25 index."""
     out_dir = artifacts_dir or ensure_artifacts_dir()
     out_path = out_dir / BM25_INDEX_NAME
-    return json.loads(out_path.read_text(encoding="utf-8"))
+    if out_path.exists():
+        with gzip.open(out_path, "rt", encoding="utf-8") as handle:
+            return json.load(handle)
+    legacy_path = out_dir / LEGACY_BM25_INDEX_NAME
+    return json.loads(legacy_path.read_text(encoding="utf-8"))
 
 
 def score_bm25_query(

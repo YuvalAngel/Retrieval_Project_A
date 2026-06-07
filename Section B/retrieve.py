@@ -1,4 +1,4 @@
-"""Query-time retrieval using Reciprocal Rank Fusion (RRF)."""
+"""Query-time retrieval using dense/BM25 fusion plus structural reranking."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import numpy as np
 from embed import embed_queries
 from index import load_index
 from bm25 import load_bm25, score_bm25_query
+from structure import load_structure, rank_structured
 from utils import K_EVAL
 
 
@@ -22,6 +23,10 @@ def search_batch(
 
     corpus_vectors, page_ids = load_index(artifacts_dir)
     bm25_data = load_bm25(artifacts_dir)
+    try:
+        structure = load_structure(artifacts_dir)
+    except FileNotFoundError:
+        structure = None
 
     query_vectors = embed_queries(queries)
     if query_vectors.size == 0:
@@ -32,7 +37,6 @@ def search_batch(
 
     # RRF Constant
     RRF_K = 10
-
     for q_idx, query_str in enumerate(queries):
         # --- 1. Get Dense Ranking ---
         dense_scores_raw = {
@@ -68,6 +72,15 @@ def search_batch(
         sorted_pages = sorted(
             rrf_scores.keys(), key=lambda pid: rrf_scores[pid], reverse=True
         )
-        ranked.append(sorted_pages[:top_k])
+        ranked.append(
+            rank_structured(
+                query_str,
+                structure,
+                sparse_scores_raw,
+                dense_scores_raw,
+                sorted_pages,
+                top_k,
+            )
+        )
 
     return ranked

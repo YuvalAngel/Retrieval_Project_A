@@ -11,6 +11,7 @@ from chunk import Chunk, chunk_corpus
 from embed import embed_texts
 from utils import ARTIFACTS_DIR, ensure_artifacts_dir, iter_entries
 from bm25 import build_bm25
+from structure import build_structure
 
 INDEX_VECTORS_NAME = "index_vectors.npy"
 INDEX_META_NAME = "index_meta.json"
@@ -41,6 +42,9 @@ def build_index(
     
     # 2. Build Sparse BM25 Index
     build_bm25(records, out_dir)
+
+    # 3. Build structural metadata for generated entity families
+    build_structure(records, out_dir)
     
     return vectors, page_ids
 
