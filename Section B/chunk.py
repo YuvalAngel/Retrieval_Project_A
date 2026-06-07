@@ -7,6 +7,8 @@ from typing import Any, Dict, List
 
 from utils import entry_text
 
+CHUNK_SIZE = 180
+STRIDE = 180
 
 @dataclass
 class Chunk:
@@ -15,23 +17,38 @@ class Chunk:
     text: str
 
 
-def chunk_entry(record: Dict[str, Any]) -> List[Chunk]:
-    """
-    Extract only the title and the lead paragraph (first 150 words).
-    This maximizes signal-to-noise and perfectly fits the token limit.
-    """
+def chunk_entry(record):
     page_id = int(record["page_id"])
+
     title = record.get("title", "").strip()
     content = record.get("content", "").strip()
 
-    # Grab the first 150 words of the content
     words = content.split()
-    lead_paragraph = " ".join(words[:150])
 
-    # Prepend the title for maximum semantic context
-    chunk_text = f"{title} : {lead_paragraph}" if title else lead_paragraph
+    chunks = []
 
-    return [Chunk(page_id=page_id, chunk_id=0, text=chunk_text)]
+    for chunk_id, start in enumerate(
+        range(0, len(words), STRIDE)
+    ):
+        chunk_words = words[start:start + CHUNK_SIZE]
+
+        if len(chunk_words) < 40:
+            continue
+
+        text = (
+            f"{title}\n\n"
+            + " ".join(chunk_words)
+        )
+
+        chunks.append(
+            Chunk(
+                page_id=page_id,
+                chunk_id=chunk_id,
+                text=text,
+            )
+        )
+
+    return chunks
 
 
 def chunk_corpus(records: List[Dict[str, Any]]) -> List[Chunk]:

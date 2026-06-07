@@ -1,2 +1,4 @@
 Section A/data/
 Section B/data/
+Section B/artifacts/
+section B/__pycache__
