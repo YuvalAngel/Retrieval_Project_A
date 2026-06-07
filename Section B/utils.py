@@ -8,7 +8,8 @@ from typing import Any, Dict, Iterable, Iterator, List
 STUDENT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = STUDENT_ROOT / "data"
 ENTRIES_DIR = DATA_DIR / "Wikipedia Entries"
-PUBLIC_QUERIES_PATH = DATA_DIR / "public_queries.json"
+# PUBLIC_QUERIES_PATH = DATA_DIR / "public_queries.json"
+PUBLIC_QUERIES_PATH = DATA_DIR / "queries.json"
 ARTIFACTS_DIR = STUDENT_ROOT / "artifacts"
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
