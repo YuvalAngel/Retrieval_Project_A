@@ -1,124 +1,120 @@
-"""BM25 Sparse Retrieval Implementation with Tokenization."""
+"""Page-level BM25 with a compact numpy postings artifact.
 
+The synthetic corpus reuses template sentences across entity clusters; the rare
+content words of a query (e.g. "thermal imaging pipelines", "patent pool") are
+highly discriminative, which makes lexical scoring a strong complement to dense
+passage retrieval. Postings are stored as flat numpy arrays (CSR-style) instead
+of JSON: ~10x smaller on disk and loads in seconds.
+"""
 from __future__ import annotations
 
 import json
-import math
-import string
-from collections import Counter, defaultdict
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
-from utils import ensure_artifacts_dir
+import numpy as np
 
-BM25_INDEX_NAME = "bm25_index.json"
+from utils import ARTIFACTS_DIR
 
-# English stop words filter
-STOP_WORDS = {
-    "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", 
-    "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", 
-    "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", 
-    "theirs", "themselves", "what", "which", "who", "whom", "this", "that", 
-    "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", 
-    "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", 
-    "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", 
-    "at", "by", "for", "with", "about", "against", "between", "into", "through", 
-    "during", "before", "after", "above", "below", "to", "from", "up", "down", 
-    "in", "out", "on", "off", "over", "under", "again", "further", "then", 
-    "once", "here", "there", "when", "where", "why", "how", "all", "any", 
-    "both", "each", "few", "more", "most", "other", "some", "such", "no", 
-    "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", 
-    "t", "can", "will", "just", "don", "should", "now"
-}
+BM25_POSTINGS_NAME = "bm25_postings.npz"
+BM25_VOCAB_NAME = "bm25_vocab.json"
+K1 = 2.0
+B = 1.0  # full length normalization: long real-Wikipedia distractor pages
+         # otherwise outscore the short synthetic template pages
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+STOP_WORDS = frozenset(
+    """a an and are as at be been by for from had has have he her his i if in is it
+    its of on or s t that the their them they this to was were which who will with""".split()
+)
 
 
 def tokenize(text: str) -> List[str]:
-    """Cleans text by removing punctuation and stop words."""
-    text = text.lower()
-    # Replace punctuation with space so things like "Connect-4" become "connect 4"
-    for p in string.punctuation:
-        text = text.replace(p, " ")
-    return [w for w in text.split() if w not in STOP_WORDS]
+    return [t for t in _TOKEN_RE.findall(text.lower()) if t not in STOP_WORDS]
 
 
-def build_bm25(
-    records: List[Dict[str, Any]], artifacts_dir: Path | None = None
+def build_bm25(records: List[Dict[str, Any]], artifacts_dir: Path | None = None) -> None:
+    """Build the page-level inverted index over full text (title + content)."""
+    texts = [f"{r.get('title', '')} {r.get('content', '')}" for r in records]
+    _build_postings(texts, artifacts_dir, BM25_POSTINGS_NAME, BM25_VOCAB_NAME)
+
+
+def _build_postings(
+    texts: List[str],
+    artifacts_dir: Path | None,
+    postings_name: str,
+    vocab_name: str,
 ) -> None:
-    """Builds and saves the BM25 inverted index offline."""
-    out_dir = artifacts_dir or ensure_artifacts_dir()
-
-    N = len(records)
-    df: Counter = Counter()
-    doc_lengths: Dict[int, int] = {}
-    tf_index: Dict[str, Dict[int, int]] = defaultdict(dict)
-    total_length = 0
-
-    for record in records:
-        pid = int(record["page_id"])
-        text = f"{record.get('title', '')} {record.get('content', '')}"
-
-        # Use our new clean tokenizer instead of raw splitting
+    out_dir = artifacts_dir or ARTIFACTS_DIR
+    n_docs = len(texts)
+    doc_len = np.zeros(n_docs, dtype=np.int32)
+    postings: Dict[str, Dict[int, int]] = {}
+    for di, text in enumerate(texts):
         tokens = tokenize(text)
-        length = len(tokens)
+        doc_len[di] = len(tokens)
+        counts: Dict[str, int] = {}
+        for t in tokens:
+            counts[t] = counts.get(t, 0) + 1
+        for t, c in counts.items():
+            postings.setdefault(t, {})[di] = c
 
-        doc_lengths[pid] = length
-        total_length += length
+    # drop hapax terms (df == 1): they never help template queries and halve the vocab
+    terms = sorted(t for t, p in postings.items() if len(p) > 1)
+    offsets = np.zeros(len(terms) + 1, dtype=np.int64)
+    idf = np.zeros(len(terms), dtype=np.float32)
+    docs_flat: List[np.ndarray] = []
+    tfs_flat: List[np.ndarray] = []
+    for ti, t in enumerate(terms):
+        p = postings[t]
+        df = len(p)
+        idf[ti] = np.log((n_docs - df + 0.5) / (df + 0.5) + 1.0)
+        d = np.fromiter(p.keys(), dtype=np.int32, count=df)
+        c = np.fromiter(p.values(), dtype=np.int64, count=df)
+        docs_flat.append(d)
+        tfs_flat.append(np.minimum(c, 65535).astype(np.uint16))
+        offsets[ti + 1] = offsets[ti] + df
 
-        term_counts = Counter(tokens)
-        for term, count in term_counts.items():
-            tf_index[term][pid] = count
-            df[term] += 1
-
-    avgdl = total_length / N if N > 0 else 0.0
-
-    idf: Dict[str, float] = {}
-    for term, doc_count in df.items():
-        idf[term] = math.log(((N - doc_count + 0.5) / (doc_count + 0.5)) + 1.0)
-
-    artifact = {
-        "N": N,
-        "avgdl": avgdl,
-        "idf": idf,
-        "doc_lengths": doc_lengths,
-        "tf_index": tf_index,
-    }
-
-    out_path = out_dir / BM25_INDEX_NAME
-    out_path.write_text(json.dumps(artifact), encoding="utf-8")
+    np.savez_compressed(
+        out_dir / postings_name,
+        offsets=offsets,
+        doc_idx=np.concatenate(docs_flat) if docs_flat else np.zeros(0, np.int32),
+        tf=np.concatenate(tfs_flat) if tfs_flat else np.zeros(0, np.uint16),
+        idf=idf,
+        doc_len=doc_len,
+    )
+    (out_dir / vocab_name).write_text(
+        json.dumps({t: i for i, t in enumerate(terms)}), encoding="utf-8"
+    )
 
 
 def load_bm25(artifacts_dir: Path | None = None) -> Dict[str, Any]:
-    """Loads the precomputed BM25 index."""
-    out_dir = artifacts_dir or ensure_artifacts_dir()
-    out_path = out_dir / BM25_INDEX_NAME
-    return json.loads(out_path.read_text(encoding="utf-8"))
+    root = artifacts_dir or ARTIFACTS_DIR
+    data = np.load(root / BM25_POSTINGS_NAME)
+    vocab = json.loads((root / BM25_VOCAB_NAME).read_text(encoding="utf-8"))
+    doc_len = data["doc_len"].astype(np.float32)
+    avgdl = float(doc_len.mean()) if doc_len.size else 1.0
+    return {
+        "vocab": vocab,
+        "offsets": data["offsets"],
+        "doc_idx": data["doc_idx"],
+        "tf": data["tf"].astype(np.float32),
+        "idf": data["idf"],
+        "len_norm": K1 * (1.0 - B + B * doc_len / avgdl),  # precomputed per doc
+        "n_docs": doc_len.shape[0],
+    }
 
 
-def score_bm25_query(
-    query: str, bm25_data: Dict[str, Any], k1: float = 1.4, b: float = 1.5
-) -> Dict[int, float]:
-    """Calculates sparse BM25 scores using clean query tokens."""
-    # Apply the exact same tokenization to the user query
-    tokens = tokenize(query)
-    scores: Dict[int, float] = defaultdict(float)
-
-    idf = bm25_data["idf"]
-    tf_index = bm25_data["tf_index"]
-    doc_lengths = bm25_data["doc_lengths"]
-    avgdl = bm25_data["avgdl"]
-
-    for term in tokens:
-        if term not in tf_index:
+def score_bm25_query(query: str, bm: Dict[str, Any]) -> np.ndarray:
+    """Return a dense (n_docs,) BM25 score vector for one query."""
+    scores = np.zeros(bm["n_docs"], dtype=np.float32)
+    vocab, offsets = bm["vocab"], bm["offsets"]
+    for term in set(tokenize(query)):
+        ti = vocab.get(term)
+        if ti is None:
             continue
-
-        term_idf = idf.get(term, 0.0)
-
-        for pid_str, tf in tf_index[term].items():
-            pid = int(pid_str)
-            L = doc_lengths.get(pid_str, avgdl)
-
-            numerator = tf * (k1 + 1.0)
-            denominator = tf + k1 * (1.0 - b + b * (L / avgdl))
-            scores[pid] += term_idf * (numerator / denominator)
-
-    return dict(scores)
+        lo, hi = offsets[ti], offsets[ti + 1]
+        docs = bm["doc_idx"][lo:hi]
+        tf = bm["tf"][lo:hi]
+        scores[docs] += bm["idf"][ti] * tf * (K1 + 1.0) / (tf + bm["len_norm"][docs])
+    return scores

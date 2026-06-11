@@ -18,20 +18,25 @@ def get_model() -> SentenceTransformer:
     return _model
 
 
-def embed_texts(texts: Sequence[str], *, batch_size: int = 64) -> np.ndarray:
-    """Return L2-normalized embeddings, shape (n, dim)."""
+def embed_texts(
+    texts: Sequence[str],
+    *,
+    batch_size: int = 128,
+    show_progress: bool = False,
+) -> np.ndarray:
+    """Return L2-normalized embeddings, shape (n, 384)."""
     if not texts:
         return np.zeros((0, 384), dtype=np.float32)
     model = get_model()
     vectors = model.encode(
         list(texts),
         batch_size=batch_size,
-        show_progress_bar=True,
+        show_progress_bar=show_progress,
         convert_to_numpy=True,
         normalize_embeddings=True,
     )
     return np.asarray(vectors, dtype=np.float32)
 
 
-def embed_queries(queries: List[str], *, batch_size: int = 64) -> np.ndarray:
+def embed_queries(queries: List[str], *, batch_size: int = 128) -> np.ndarray:
     return embed_texts(queries, batch_size=batch_size)

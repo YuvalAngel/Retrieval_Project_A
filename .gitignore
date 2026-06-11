@@ -1,2 +1,7 @@
+*.pyc
+.DS_Store
+.Rhistory
 Section A/data/
 Section B/data/
+Section B/data/Wikipedia Entries/
+__pycache__/
