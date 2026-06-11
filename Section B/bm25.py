@@ -8,6 +8,7 @@ import string
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
+from chunk import Chunk
 
 from utils import ensure_artifacts_dir
 
@@ -41,39 +42,48 @@ def tokenize(text: str) -> List[str]:
     return [w for w in text.split() if w not in STOP_WORDS]
 
 
-def build_bm25(
-    records: List[Dict[str, Any]], artifacts_dir: Path | None = None
+def build_bm25_chunks(
+    chunks: List[Chunk],
+    artifacts_dir: Path | None = None,
 ) -> None:
-    """Builds and saves the BM25 inverted index offline."""
+    """
+    Build BM25 over chunks, not pages.
+    Chunk index position becomes the BM25 document ID.
+    """
+
     out_dir = artifacts_dir or ensure_artifacts_dir()
 
-    N = len(records)
-    df: Counter = Counter()
+    N = len(chunks)
+
+    df = Counter()
     doc_lengths: Dict[int, int] = {}
     tf_index: Dict[str, Dict[int, int]] = defaultdict(dict)
+
     total_length = 0
 
-    for record in records:
-        pid = int(record["page_id"])
-        text = f"{record.get('title', '')} {record.get('content', '')}"
+    for chunk_idx, chunk in enumerate(chunks):
 
-        # Use our new clean tokenizer instead of raw splitting
-        tokens = tokenize(text)
+        tokens = tokenize(chunk.text)
+
         length = len(tokens)
 
-        doc_lengths[pid] = length
+        doc_lengths[chunk_idx] = length
         total_length += length
 
         term_counts = Counter(tokens)
+
         for term, count in term_counts.items():
-            tf_index[term][pid] = count
+            tf_index[term][chunk_idx] = count
             df[term] += 1
 
     avgdl = total_length / N if N > 0 else 0.0
 
     idf: Dict[str, float] = {}
+
     for term, doc_count in df.items():
-        idf[term] = math.log(((N - doc_count + 0.5) / (doc_count + 0.5)) + 1.0)
+        idf[term] = math.log(
+            ((N - doc_count + 0.5) / (doc_count + 0.5)) + 1.0
+        )
 
     artifact = {
         "N": N,
@@ -84,7 +94,11 @@ def build_bm25(
     }
 
     out_path = out_dir / BM25_INDEX_NAME
-    out_path.write_text(json.dumps(artifact), encoding="utf-8")
+
+    out_path.write_text(
+        json.dumps(artifact),
+        encoding="utf-8",
+    )
 
 
 def load_bm25(artifacts_dir: Path | None = None) -> Dict[str, Any]:

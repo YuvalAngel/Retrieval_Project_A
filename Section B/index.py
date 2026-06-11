@@ -56,7 +56,6 @@ def load_index(
     vectors = np.load(root / INDEX_VECTORS_NAME)
     meta = json.loads((root / INDEX_META_NAME).read_text(encoding="utf-8"))
     
-    # Extract only page_ids. chunk_ids has been completely removed!
     page_ids = [int(x) for x in meta["page_ids"]]
     
     return vectors, page_ids
