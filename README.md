@@ -1,4 +1,4 @@
-# Project A — Dynamic Vector Index & Retrieval Pipeline
+# Retrieval Project A
 
 - **[Section A](Section%20A/)** — dynamic vector database index (`vector_index.py`):
   exact search via one BLAS matmul with a block-max prescreen top-k selection,
@@ -11,4 +11,4 @@
   index ships in the repo, so `python scripts/eval_public.py` works on a fresh
   clone with dependencies installed.
 
-**Video:** [link TBD — added before submission]
+**Video:** https://drive.google.com/file/d/1xrsAp4msgkaYTxJVLo1oK0Muu1PoBUYI/view?usp=sharing

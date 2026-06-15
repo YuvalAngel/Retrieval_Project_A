@@ -3,7 +3,7 @@
 End-to-end retrieval over 27,074 Wikipedia-style pages: `run(queries)` returns a
 ranked list of `page_id`s per query, scored by mean NDCG@10.
 
-**Video:** [link TBD — added before submission]
+**Video:** https://drive.google.com/file/d/1xrsAp4msgkaYTxJVLo1oK0Muu1PoBUYI/view?usp=sharing
 
 ## Quick start (grading flow)
 
